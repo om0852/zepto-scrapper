@@ -1,0 +1,18 @@
+[32mINFO[39m  System info[90m {"apifyVersion":"3.5.2","apifyClientVersion":"2.20.0","crawleeVersion":"3.15.3","osType":"Windows_NT","nodeVersion":"v22.17.0"}[39m
+
+🚀 Starting Zepto Scraper
+🔍 Search URLs: 1
+[32mINFO[39m [33m PlaywrightCrawler:[39m Starting the crawler.
+[32mINFO[39m [33m PlaywrightCrawler:[39m 🔍 Processing: https://blinkit.com/cn/milk/cid/14/922
+[32mINFO[39m [33m PlaywrightCrawler:[39m 🎯 Setting location to pincode: 411001
+[33mWARN[39m [33m PlaywrightCrawler:[39m ⚠️ Location button not found
+[32mINFO[39m [33m PlaywrightCrawler:[39m ✅ Extracted 0 products
+[31mERROR[39m[33m PlaywrightCrawler:[39m ❌ No products extracted
+[32mINFO[39m [33m PlaywrightCrawler:[39m Page state: {"url":"https://blinkit.com/cn/milk/cid/14/922","title":"Buy Milk Online - Price ₹10 Per 115 ml Near me","productCount":0}
+[32mINFO[39m [33m PlaywrightCrawler:[39m All requests from the queue have been processed, the crawler will shut down.
+[32mINFO[39m [33m PlaywrightCrawler:[39m Final request statistics:[90m {"requestsFinished":1,"requestsFailed":0,"retryHistogram":[1],"requestAvgFailedDurationMillis":null,"requestAvgFinishedDurationMillis":43420,"requestsFinishedPerMinute":1,"requestsFailedPerMinute":0,"requestTotalDurationMillis":43420,"requestsTotal":1,"crawlerRuntimeMillis":45782}[39m
+[32mINFO[39m [33m PlaywrightCrawler:[39m Finished! Total 1 requests: 1 succeeded, 0 failed.[90m {"terminal":true}[39m
+
+✅ Scraping completed successfully!
+📁 Check storage/datasets/default/ for results
+

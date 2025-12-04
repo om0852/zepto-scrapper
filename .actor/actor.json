@@ -1,0 +1,7 @@
+{
+	"actorSpecification": 1,
+	"name": "zepto-scrapper-om",
+	"version": "1.0",
+	"buildTag": "latest",
+	"environmentVariables": {}
+}
