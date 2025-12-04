@@ -307,9 +307,13 @@ const crawler = new PlaywrightCrawler({
             await autoScroll(page, log, scrollCount);
             
             // Extract Data
-            const products = await page.evaluate((selectors) => {
+            const { products, deliveryTime } = await page.evaluate((selectors) => {
                 const productCards = [];
                 const productLinks = document.querySelectorAll(selectors.productLink);
+
+                // Extract delivery time
+                const deliveryTimeEl = document.querySelector('[data-testid="delivery-time"] span');
+                const deliveryTime = deliveryTimeEl ? (deliveryTimeEl.textContent || '').trim() : null;
 
                 function textOrNull(el) {
                     return el ? (el.textContent || '').trim() : null;
@@ -406,7 +410,7 @@ const crawler = new PlaywrightCrawler({
                     }
                 });
 
-                return productCards;
+                return { products: productCards, deliveryTime };
             }, SELECTORS);
             
             if (products.length === 0) {
@@ -419,6 +423,7 @@ const crawler = new PlaywrightCrawler({
             
             const productsToSave = products.slice(0, maxProductsPerSearch).map(product => ({
                 ...product,
+                deliveryTime,
                 searchQuery,
                 searchUrl: url,
                 platform: 'Zepto',
@@ -427,7 +432,7 @@ const crawler = new PlaywrightCrawler({
             
             await Dataset.pushData(productsToSave);
             
-            log.info(`✅ Saved ${productsToSave.length} products for "${searchQuery}"`);
+            log.info(`✅ Saved ${productsToSave.length} products for "${searchQuery}" (Delivery: ${deliveryTime})`);
 
         } catch (error) {
             log.error(`❌ Error: ${error.message}`);
