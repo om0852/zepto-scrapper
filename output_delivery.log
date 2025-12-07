@@ -1,0 +1,18 @@
+[32mINFO[39m  System info[90m {"apifyVersion":"3.5.2","apifyClientVersion":"2.20.0","crawleeVersion":"3.15.3","osType":"Windows_NT","nodeVersion":"v22.17.0"}[39m
+[32mINFO[39m  🚀 Starting Zepto Scraper with 1 URLs
+[32mINFO[39m [33m PlaywrightCrawler:[39m Starting the crawler.
+[32mINFO[39m [33m PlaywrightCrawler:[39m 🔍 Processing: https://www.zepto.com/search?query=milk
+[32mINFO[39m [33m PlaywrightCrawler:[39m 🎯 Setting location to pincode: 411001
+[32mINFO[39m [33m PlaywrightCrawler:[39m ✓ Clicked location button: button[aria-label="Select Location"]
+[32mINFO[39m [33m PlaywrightCrawler:[39m ✅ Location set successfully
+[32mINFO[39m [33m PlaywrightCrawler:[39m 🔄 Auto-scrolling up to 10 times...
+[32mINFO[39m [33m PlaywrightCrawler:[39m   - Scroll 1/10: Content loaded (Height: 5293)
+[32mINFO[39m [33m PlaywrightCrawler:[39m   - Scroll 2/10: Content loaded (Height: 6987)
+[32mINFO[39m [33m PlaywrightCrawler:[39m   - Scroll 3/10: Content loaded (Height: 8353)
+[32mINFO[39m [33m PlaywrightCrawler:[39m   - Scroll 4/10: Content loaded (Height: 8676)
+[32mINFO[39m [33m PlaywrightCrawler:[39m ✓ Reached bottom or no new content after 7 scrolls
+[32mINFO[39m [33m PlaywrightCrawler:[39m ✅ Saved 100 products for "milk" (Delivery: 11 minutes)
+[32mINFO[39m [33m PlaywrightCrawler:[39m All requests from the queue have been processed, the crawler will shut down.
+[32mINFO[39m [33m PlaywrightCrawler:[39m Final request statistics:[90m {"requestsFinished":1,"requestsFailed":0,"retryHistogram":[1],"requestAvgFailedDurationMillis":null,"requestAvgFinishedDurationMillis":34822,"requestsFinishedPerMinute":2,"requestsFailedPerMinute":0,"requestTotalDurationMillis":34822,"requestsTotal":1,"crawlerRuntimeMillis":38671}[39m
+[32mINFO[39m [33m PlaywrightCrawler:[39m Finished! Total 1 requests: 1 succeeded, 0 failed.[90m {"terminal":true}[39m
+[32mINFO[39m  ✅ Scraping completed successfully!

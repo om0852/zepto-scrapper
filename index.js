@@ -1,5 +1,6 @@
 import { Actor } from 'apify';
 import { PlaywrightCrawler, Dataset, log } from 'crawlee';
+import UserAgent from 'user-agents';
 
 // Initialize Actor
 await Actor.init();
@@ -15,7 +16,7 @@ const {
     navigationTimeout = 60000,
     headless = true,
     proxyConfiguration = { useApifyProxy: false },
-    scrollCount = 20, // Increased default scroll count
+    scrollCount = 50, // Max scrolls (stops early when all products loaded)
 } = input;
 
 // ==================== CONSTANTS & SELECTORS ====================
@@ -63,7 +64,7 @@ async function setPincode(page, log, targetPincode) {
         log.info(`🎯 Setting location to pincode: ${targetPincode}`);
         
         await page.waitForLoadState('domcontentloaded');
-        await delay(1500);
+        await delay(800);
         
         let clicked = false;
         for (const selector of SELECTORS.locationButton) {
@@ -85,7 +86,7 @@ async function setPincode(page, log, targetPincode) {
             return false;
         }
         
-        await delay(1000);
+        await delay(500);
         
         try {
             await page.waitForSelector(SELECTORS.locationModal, { timeout: 5000 });
@@ -94,7 +95,7 @@ async function setPincode(page, log, targetPincode) {
             return false;
         }
         
-        await delay(800);
+        await delay(500);
         
         const searchInput = page.locator(SELECTORS.searchInput).first();
         
@@ -110,7 +111,7 @@ async function setPincode(page, log, targetPincode) {
         await delay(200);
         await searchInput.type(targetPincode, { delay: 80 });
         
-        await delay(1500);
+        await delay(1000);
         
         try {
             await page.waitForSelector(SELECTORS.searchResultItem, { timeout: 5000 });
@@ -123,7 +124,7 @@ async function setPincode(page, log, targetPincode) {
         
         if (await firstAddress.count() > 0) {
             await firstAddress.click({ force: true });
-            await delay(1500);
+            await delay(1000);
             
             const modalStillOpen = await page.locator(SELECTORS.locationModal).count();
             if (modalStillOpen === 0) {
@@ -140,46 +141,58 @@ async function setPincode(page, log, targetPincode) {
 }
 
 /**
- * Auto-scrolls the page to load dynamic content.
- * Scrolls to bottom, waits for height change, and retries if needed.
+ * Auto-scrolls the page until all products are loaded.
+ * Detects when no new products appear and stops scrolling.
  */
-async function autoScroll(page, log, maxScrolls = 20) {
+async function autoScroll(page, log, maxScrolls = 50) {
     try {
-        log.info(`🔄 Auto-scrolling up to ${maxScrolls} times...`);
+        log.info(`🔄 Scrolling until all products are loaded (max ${maxScrolls} scrolls)...`);
         
-        let previousHeight = await page.evaluate('document.body.scrollHeight');
+        let previousProductCount = 0;
         let noChangeCount = 0;
+        let scrollCount = 0;
+        const MAX_NO_CHANGE = 3; // Stop if product count doesn't change 3 times in a row
         
-        for (let i = 0; i < maxScrolls; i++) {
+        while (scrollCount < maxScrolls) {
+            scrollCount++;
+            
+            // Scroll to bottom
             await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-            await delay(2000); // Wait for content to load
             
-            const newHeight = await page.evaluate('document.body.scrollHeight');
+            // Wait for content to load
+            await delay(1500);
             
-            if (newHeight === previousHeight) {
+            // Count current products
+            const currentProductCount = await page.evaluate((selector) => {
+                return document.querySelectorAll(selector).length;
+            }, SELECTORS.productLink);
+            
+            log.info(`  - Scroll ${scrollCount}: Found ${currentProductCount} products`);
+            
+            // Check if new products were loaded
+            if (currentProductCount === previousProductCount) {
                 noChangeCount++;
-                // Try scrolling up a bit and back down to trigger observers
-                if (noChangeCount === 1) {
-                    await page.evaluate(() => window.scrollBy(0, -500));
-                    await delay(500);
-                    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                    await delay(1000);
-                }
+                log.info(`    ⚠️ No new products (${noChangeCount}/${MAX_NO_CHANGE})`);
                 
-                if (noChangeCount >= 3) {
-                    log.info(`✓ Reached bottom or no new content after ${i + 1} scrolls`);
+                if (noChangeCount >= MAX_NO_CHANGE) {
+                    log.info(`✓ All products loaded! Total: ${currentProductCount} products`);
                     break;
                 }
             } else {
-                noChangeCount = 0;
-                previousHeight = newHeight;
-                log.info(`  - Scroll ${i + 1}/${maxScrolls}: Content loaded (Height: ${newHeight})`);
+                noChangeCount = 0; // Reset counter if new products found
+                previousProductCount = currentProductCount;
             }
         }
         
-        // Scroll back to top to ensure all elements are rendered/hydrated if needed
+        if (scrollCount >= maxScrolls) {
+            log.info(`⚠️ Reached maximum scroll limit (${maxScrolls}). Found ${previousProductCount} products.`);
+        }
+        
+        // Scroll back to top to ensure all elements are rendered
         await page.evaluate(() => window.scrollTo(0, 0));
         await delay(500);
+        
+        log.info('✓ Scrolling completed');
         
     } catch (error) {
         log.warning(`Auto-scroll failed: ${error.message}`);
@@ -190,26 +203,38 @@ async function autoScroll(page, log, maxScrolls = 20) {
  * Waits for search results to appear on the page.
  */
 async function waitForSearchResults(page, log) {
-    try {
-        await page.waitForSelector(SELECTORS.productLink, { timeout: 10000 });
-        const count = await page.locator(SELECTORS.productLink).count();
-        if (count > 0) {
-            await delay(500);
-            return true;
-        }
-    } catch (e) {
-        // Fallback check
+    // Try multiple times with delays to handle dynamic loading
+    for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-            const bodyText = await page.evaluate(() => document.body.innerText || '');
-            if (bodyText.includes('₹') || /\bADD\b/i.test(bodyText)) {
+            log.info(`🔍 Attempt ${attempt}/3: Waiting for search results...`);
+            await page.waitForSelector(SELECTORS.productLink, { timeout: 15000 });
+            const count = await page.locator(SELECTORS.productLink).count();
+            if (count > 0) {
+                log.info(`✓ Found ${count} product elements`);
+                await delay(1000);
                 return true;
             }
-        } catch (err) {
-            // Ignore
+        } catch (e) {
+            // Fallback check
+            try {
+                const bodyText = await page.evaluate(() => document.body.innerText || '');
+                if (bodyText.includes('₹') || /\bADD\b/i.test(bodyText)) {
+                    log.info('✓ Found products via text content check');
+                    await delay(1000);
+                    return true;
+                }
+            } catch (err) {
+                // Ignore
+            }
+            
+            if (attempt < 3) {
+                log.info(`⏳ Retry ${attempt}: Products not found yet, waiting 2s...`);
+                await delay(2000);
+            }
         }
     }
     
-    log.warning('No search results found');
+    log.warning('No search results found after 3 attempts');
     return false;
 }
 
@@ -219,11 +244,11 @@ function pickRandom(arr) {
 
 // ==================== CRAWLER SETUP ====================
 
-const USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-];
+// Function to generate a random user agent
+function getRandomUserAgent() {
+    const userAgent = new UserAgent({ deviceCategory: 'desktop' });
+    return userAgent.toString();
+}
 
 const proxyConfig = proxyConfiguration?.useApifyProxy 
     ? await Actor.createProxyConfiguration(proxyConfiguration)
@@ -251,7 +276,8 @@ const crawler = new PlaywrightCrawler({
     preNavigationHooks: [
         async ({ page, log }) => {
             try {
-                const ua = pickRandom(USER_AGENTS);
+                const ua = getRandomUserAgent();
+                log.info(`🎭 Using User-Agent: ${ua.substring(0, 80)}...`);
 
                 await page.setExtraHTTPHeaders({
                     'Accept-Language': 'en-US,en;q=0.9',
@@ -277,144 +303,191 @@ const crawler = new PlaywrightCrawler({
 
         log.info(`🔍 Processing: ${url}`);
 
+        const MAX_RETRIES = 3;
+        const MIN_PRODUCTS = 5;
+        let attemptNumber = 0;
+        let products = [];
+        let deliveryTime = null;
+
         try {
-            // Handle Location
+            // Handle Location (only once, not on retries)
             if (isFirstRequest) {
-                await setPincode(page, log, pincode);
-                await delay(1500);
+                const locationSet = await setPincode(page, log, pincode);
+                if (locationSet) {
+                    log.info('⏳ Waiting for page to reload with new location...');
+                    await delay(1500);
+                    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+                    await delay(1000);
+                }
             }
             
             await page.waitForLoadState('domcontentloaded');
-            await delay(2000);
+            await delay(1000);
             
             // Close popups
             try {
                 const closeButton = page.locator('button[aria-label*="Close"]').first();
                 if (await closeButton.count() > 0) {
                     await closeButton.click({ timeout: 1500 });
+                    await delay(500);
                 }
             } catch (e) {
                 // No popup
             }
             
-            const resultsFound = await waitForSearchResults(page, log);
-            
-            if (!resultsFound) {
-                log.warning('⚠️ No search results detected');
-                return;
+            // RETRY LOOP: Try up to 3 times if we get < 5 products
+            while (attemptNumber < MAX_RETRIES) {
+                attemptNumber++;
+                log.info(`📊 Attempt ${attemptNumber}/${MAX_RETRIES} to scrape products...`);
+                
+                const resultsFound = await waitForSearchResults(page, log);
+                
+                if (!resultsFound) {
+                    log.warning(`⚠️ No search results detected on attempt ${attemptNumber}`);
+                    if (attemptNumber < MAX_RETRIES) {
+                        log.info('🔄 Reloading page and retrying...');
+                        await page.reload({ waitUntil: 'domcontentloaded' });
+                        await delay(2000);
+                        continue;
+                    } else {
+                        return;
+                    }
+                }
+                
+                await autoScroll(page, log, scrollCount);
+                
+                // Extract Data
+                const extractedData = await page.evaluate((selectors) => {
+                    const productCards = [];
+                    const productLinks = document.querySelectorAll(selectors.productLink);
+
+                    // Extract delivery time
+                    const deliveryTimeEl = document.querySelector('[data-testid="delivery-time"] span');
+                    const deliveryTime = deliveryTimeEl ? (deliveryTimeEl.textContent || '').trim() : null;
+
+                    function textOrNull(el) {
+                        return el ? (el.textContent || '').trim() : null;
+                    }
+
+                    productLinks.forEach((link, index) => {
+                        try {
+                            const productUrl = link.href;
+                            const urlMatch = productUrl.match(/\/pn\/([^/]+)\/pvid\/([^/]+)/) || 
+                                           productUrl.match(/\/(?:p|product)\/([^/]+)\/([^/]+)/);
+                            const productSlug = urlMatch?.[1] || null;
+                            const productId = urlMatch?.[2] || `zepto-${index}`;
+
+                            const card = link.querySelector(selectors.productCard) || link;
+
+                            // Name extraction
+                            let productName = null;
+                            for (const sel of selectors.productName) {
+                                const el = card.querySelector(sel);
+                                if (el && textOrNull(el)) {
+                                    productName = textOrNull(el);
+                                    break;
+                                }
+                            }
+                            if (!productName) {
+                                productName = link.getAttribute('title') || 
+                                            link.querySelector('img')?.alt || null;
+                            }
+
+                            // Image
+                            const imgEl = card.querySelector(selectors.productImage) || link.querySelector('img');
+                            const productImage = imgEl?.src || imgEl?.getAttribute('data-src') || null;
+
+                            // Price
+                            let currentPrice = null;
+                            const spans = Array.from(card.querySelectorAll(selectors.priceSpan));
+                            for (const s of spans) {
+                                const match = (s.textContent || '').match(/₹\s*(\d+(?:,\d+)*(?:\.\d+)?)/);
+                                if (match) {
+                                    currentPrice = parseFloat(match[1].replace(/,/g, ''));
+                                    break;
+                                }
+                            }
+
+                            // Original price
+                            let originalPrice = null;
+                            const origSpan = spans.find(s => 
+                                /(MRP|strike|original)/i.test(s.className || ''));
+                            if (origSpan) {
+                                const match = (origSpan.textContent || '').match(/₹\s*(\d+(?:,\d+)*(?:\.\d+)?)/);
+                                if (match) originalPrice = parseFloat(match[1].replace(/,/g, ''));
+                            }
+
+                            // Discount
+                            let discountPercentage = null;
+                            if (currentPrice && originalPrice && originalPrice > currentPrice) {
+                                discountPercentage = Math.round(((originalPrice - currentPrice) / originalPrice) * 100);
+                            }
+
+                            // Pack size
+                            const packSizeEl = card.querySelector(selectors.packSize);
+                            const productWeight = packSizeEl ? textOrNull(packSizeEl) : null;
+
+                            // Rating
+                            let rating = null;
+                            const ratingEl = card.querySelector(selectors.rating);
+                            if (ratingEl) {
+                                const match = (ratingEl.textContent || '').match(/(\d+\.\d+)/);
+                                if (match) rating = parseFloat(match[1]);
+                            }
+
+                            const isSponsored = !!card.querySelector(selectors.sponsorTag);
+                            const isOutOfStock = card.getAttribute?.('data-is-out-of-stock') === 'true';
+
+                            if (productName || currentPrice || productImage) {
+                                productCards.push({
+                                    productId,
+                                    productSlug,
+                                    productName,
+                                    productImage,
+                                    currentPrice,
+                                    originalPrice,
+                                    discountPercentage,
+                                    productWeight,
+                                    rating,
+                                    isSponsored,
+                                    isOutOfStock,
+                                    productUrl,
+                                    scrapedAt: new Date().toISOString()
+                                });
+                            }
+                        } catch (err) {
+                            // console.error(`Error processing product ${index}:`, err);
+                        }
+                    });
+
+                    return { products: productCards, deliveryTime };
+                }, SELECTORS);
+                
+                // Assign extracted data
+                products = extractedData.products;
+                deliveryTime = extractedData.deliveryTime;
+                
+                log.info(`📦 Extracted ${products.length} products on attempt ${attemptNumber}`);
+                
+                // Check if we have enough products
+                if (products.length >= MIN_PRODUCTS) {
+                    log.info(`✅ Success! Found ${products.length} products (>= ${MIN_PRODUCTS})`);
+                    break; // Exit retry loop
+                } else {
+                    log.warning(`⚠️ Only found ${products.length} products (< ${MIN_PRODUCTS})`);
+                    if (attemptNumber < MAX_RETRIES) {
+                        log.info('🔄 Reloading page and retrying...');
+                        await page.reload({ waitUntil: 'domcontentloaded' });
+                        await delay(2000);
+                        // Continue to next iteration
+                    } else {
+                        log.warning(`⚠️ Max retries reached. Proceeding with ${products.length} products.`);
+                    }
+                }
             }
             
-            await autoScroll(page, log, scrollCount);
-            
-            // Extract Data
-            const { products, deliveryTime } = await page.evaluate((selectors) => {
-                const productCards = [];
-                const productLinks = document.querySelectorAll(selectors.productLink);
-
-                // Extract delivery time
-                const deliveryTimeEl = document.querySelector('[data-testid="delivery-time"] span');
-                const deliveryTime = deliveryTimeEl ? (deliveryTimeEl.textContent || '').trim() : null;
-
-                function textOrNull(el) {
-                    return el ? (el.textContent || '').trim() : null;
-                }
-
-                productLinks.forEach((link, index) => {
-                    try {
-                        const productUrl = link.href;
-                        const urlMatch = productUrl.match(/\/pn\/([^/]+)\/pvid\/([^/]+)/) || 
-                                       productUrl.match(/\/(?:p|product)\/([^/]+)\/([^/]+)/);
-                        const productSlug = urlMatch?.[1] || null;
-                        const productId = urlMatch?.[2] || `zepto-${index}`;
-
-                        const card = link.querySelector(selectors.productCard) || link;
-
-                        // Name extraction
-                        let productName = null;
-                        for (const sel of selectors.productName) {
-                            const el = card.querySelector(sel);
-                            if (el && textOrNull(el)) {
-                                productName = textOrNull(el);
-                                break;
-                            }
-                        }
-                        if (!productName) {
-                            productName = link.getAttribute('title') || 
-                                        link.querySelector('img')?.alt || null;
-                        }
-
-                        // Image
-                        const imgEl = card.querySelector(selectors.productImage) || link.querySelector('img');
-                        const productImage = imgEl?.src || imgEl?.getAttribute('data-src') || null;
-
-                        // Price
-                        let currentPrice = null;
-                        const spans = Array.from(card.querySelectorAll(selectors.priceSpan));
-                        for (const s of spans) {
-                            const match = (s.textContent || '').match(/₹\s*(\d+(?:,\d+)*(?:\.\d+)?)/);
-                            if (match) {
-                                currentPrice = parseFloat(match[1].replace(/,/g, ''));
-                                break;
-                            }
-                        }
-
-                        // Original price
-                        let originalPrice = null;
-                        const origSpan = spans.find(s => 
-                            /(MRP|strike|original)/i.test(s.className || ''));
-                        if (origSpan) {
-                            const match = (origSpan.textContent || '').match(/₹\s*(\d+(?:,\d+)*(?:\.\d+)?)/);
-                            if (match) originalPrice = parseFloat(match[1].replace(/,/g, ''));
-                        }
-
-                        // Discount
-                        let discountPercentage = null;
-                        if (currentPrice && originalPrice && originalPrice > currentPrice) {
-                            discountPercentage = Math.round(((originalPrice - currentPrice) / originalPrice) * 100);
-                        }
-
-                        // Pack size
-                        const packSizeEl = card.querySelector(selectors.packSize);
-                        const productWeight = packSizeEl ? textOrNull(packSizeEl) : null;
-
-                        // Rating
-                        let rating = null;
-                        const ratingEl = card.querySelector(selectors.rating);
-                        if (ratingEl) {
-                            const match = (ratingEl.textContent || '').match(/(\d+\.\d+)/);
-                            if (match) rating = parseFloat(match[1]);
-                        }
-
-                        const isSponsored = !!card.querySelector(selectors.sponsorTag);
-                        const isOutOfStock = card.getAttribute?.('data-is-out-of-stock') === 'true';
-
-                        if (productName || currentPrice || productImage) {
-                            productCards.push({
-                                productId,
-                                productSlug,
-                                productName,
-                                productImage,
-                                currentPrice,
-                                originalPrice,
-                                discountPercentage,
-                                productWeight,
-                                rating,
-                                isSponsored,
-                                isOutOfStock,
-                                productUrl,
-                                scrapedAt: new Date().toISOString()
-                            });
-                        }
-                    } catch (err) {
-                        // console.error(`Error processing product ${index}:`, err);
-                    }
-                });
-
-                return { products: productCards, deliveryTime };
-            }, SELECTORS);
-            
             if (products.length === 0) {
-                log.error('❌ No products extracted');
+                log.error('❌ No products extracted after all retries');
                 return;
             }
             
